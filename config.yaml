@@ -1,0 +1,24 @@
+date_range:
+  start: "2010-01-01"
+  end: "2025-01-28"  
+
+etf_tickers:
+  - XLF   # Financials
+  - XLK   # Technology
+  - XLE   # Energy
+  - XLV   # Health Care
+  - XLI   # Industrials
+  - XLP   # Consumer Staples
+  - XLY   # Consumer Discretionary
+  - XLB   # Materials
+  - XLU   # Utilities
+  - XLRE  # Real Estate
+
+etf_benchmark: SPY
+
+fred_series:
+  - CPIAUCSL  # Consumer Price Index for All Urban Consumers: All Items in U.S. City Average
+  - GDP       # Real Gross Domestic Product
+  - FEDFUNDS  # Federal Funds Effective Rate
+  - DGS10     # Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis
+

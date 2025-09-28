@@ -1,1 +1,1 @@
-# Sector-Rotation-Strategy
+# Machine Learning-driven Sector Rotation Strategy
