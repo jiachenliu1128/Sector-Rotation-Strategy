@@ -17,8 +17,8 @@ etf_tickers:
 etf_benchmark: SPY
 
 fred_series:
-  - CPIAUCSL  # Consumer Price Index for All Urban Consumers: All Items in U.S. City Average
+  - CPIAUCSL  # Consumer Price Index for All Urban Consumers: All Items in U.S. City Average (indicates inflation)
   - GDP       # Real Gross Domestic Product
-  - FEDFUNDS  # Federal Funds Effective Rate
-  - DGS10     # Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis
+  - FEDFUNDS  # Federal Funds Effective Rate (indicates short-term interest rates)
+  - DGS10     # Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis (indicates long-term interest rates)
 
