@@ -41,16 +41,16 @@ def fetch_etf_data(tickers: List[str], start: str, end: str, logger) -> pd.DataF
     """Fetch historical ETF data from Yahoo Finance.
 
     Args:
-        tickers (List[str]): _description_
-        start (str): _description_
-        end (str): _description_
-        logger (_type_): _description_
+        tickers (List[str]): List of ETF tickers to fetch.
+        start (str): Start date for the data retrieval.
+        end (str): End date for the data retrieval.
+        logger (_type_): Logger for status messages.
 
     Raises:
-        RuntimeError: _description_
+        RuntimeError: If data retrieval fails.
 
     Returns:
-        pd.DataFrame: _description_
+        pd.DataFrame: DataFrame containing the fetched ETF data.
     """
     import yfinance as yf
     
@@ -77,6 +77,19 @@ def fetch_etf_data(tickers: List[str], start: str, end: str, logger) -> pd.DataF
 
 
 def fetch_fred_data(series: List[str], logger) -> Dict[str, pd.DataFrame]:
+    """Fetch historical data from the FRED API.
+
+    Args:
+        series (List[str]): List of FRED series IDs to fetch.
+        logger (_type_): Logger for status messages.
+
+    Raises:
+        RuntimeError: If data retrieval fails.
+        RuntimeError: If no data is found for a series.
+
+    Returns:
+        Dict[str, pd.DataFrame]: Dictionary of DataFrames indexed by series ID.
+    """
     from fredapi import Fred
     
     # Load FRED API key from environment variable
@@ -107,6 +120,12 @@ def fetch_fred_data(series: List[str], logger) -> Dict[str, pd.DataFrame]:
 
 
 def main(config_path: str, data_dir: str):
+    """Main function to load and process data.
+
+    Args:
+        config_path (str): Path to the configuration file.
+        data_dir (str): Path to the data directory.
+    """
     # Initialize logger
     logger = get_logger("data_loader")
 
@@ -163,13 +182,6 @@ def main(config_path: str, data_dir: str):
         df.to_csv(out_path)
         logger.info(f"Saved FRED series {s} data csv at: {out_path}")
         save_to_sqlite(db_path, s, df, logger)
-
-
-    
-    
-    
-
-
 
 
 
