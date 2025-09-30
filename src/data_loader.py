@@ -64,7 +64,7 @@ def fetch_etf_data(tickers: List[str], start: str, end: str, logger) -> pd.DataF
         if df.empty:
             logger.warning(f"No data downloaded for {t}")
             raise RuntimeError(f"No data downloaded for {t}. Check ticker and network.")
-        data[t] = df["Adj Close"].rename(t)
+        data[t] = df["Adj Close"].rename(t) # Use adjusted close prices
     if not data:
         raise RuntimeError("No ETF data downloaded. Check tickers and network.")
     
@@ -114,6 +114,40 @@ def fetch_fred_data(series: List[str], logger) -> Dict[str, pd.DataFrame]:
         df.index.name = "date"
         data[s] = df
     return data
+
+
+
+
+def fetch_etf_fundamentals(tickers: List[str], logger) -> pd.DataFrame:
+    """Fetch basic ETF-level fundamentals (best-effort) for sector ETFs.
+
+    Args:
+        tickers (List[str]): List of ETF tickers.
+        latest_prices (pd.Series): Latest adjusted close prices for the ETFs.
+        logger (Logger): Logger for status messages.
+
+    Returns:
+        pd.DataFrame: DataFrame containing the fetched ETF fundamentals.
+    """
+    import yfinance as yf
+
+    # Fetch fundamentals for each ticker
+    rows = []
+    logger.info(f"Fetching ETF fundamentals for {len(tickers)} tickers...")
+    for t in tickers:
+        tk = yf.Ticker(t)
+        info = tk.info or {}
+        if not info:
+            raise RuntimeError(f"No fundamental data fetched for ticker {t}. Check ticker and network.")
+        rows.append({
+            "ticker": t,
+            "pe_trailing": info.get("trailingPE"),
+            "pe_forward": info.get("forwardPE"),
+            "eps_ttm": info.get("trailingEps"),
+            "pb": info.get("priceToBook"),
+            "dividend_yield": info.get("yield") 
+        })
+    return pd.DataFrame(rows).set_index("ticker")
 
 
 
@@ -168,11 +202,22 @@ def main(config_path: str, data_dir: str):
     # Save calendar index from etf data to csv and the database (for later time alignment)
     cal = pd.DataFrame(index=etf_data.index.copy())
     cal.index.name = "date"
+    
     out_path = raw_data_dir / "calendar.csv"
     cal.to_csv(out_path)
     logger.info(f"Saved trading calendar data csv at: {out_path}")
 
     save_to_sqlite(db_path, "calendar", cal, logger)
+
+    # Fetch and store basic ETF-level fundamentals
+    latest_prices = etf_data.iloc[-1]
+    fundamentals = fetch_etf_fundamentals(all_etf_tickers, latest_prices, logger)
+    
+    out_path = raw_data_dir / "etf_fundamentals.csv"
+    fundamentals.to_csv(out_path)
+    logger.info(f"Saved ETF fundamentals csv at: {out_path}")
+    
+    save_to_sqlite(db_path, "etf_fundamentals", fundamentals, logger)
 
     # Fetch and store FRED data into csv and the database
     fred_data = fetch_fred_data(fred_series, logger)
