@@ -1,5 +1,4 @@
 import argparse
-import argparse
 import os
 from pathlib import Path
 from typing import Dict, List
@@ -8,20 +7,22 @@ import numpy as np
 import yaml
 from dotenv import load_dotenv
 from utils import get_logger
-import sqlite3
 
 
 
 
-def save_to_sqlite(db_path: Path, table_name: str, df: pd.DataFrame, logger) -> None:
+def save_to_sqlite(db_path: Path, table_name: str, index_label: str, df: pd.DataFrame, logger) -> None:
     """Save a DataFrame to a SQLite database, replacing the table.
 
     Args:
         db_path (Path): Path to the SQLite database file.
         table_name (str): Name of the table to write.
+        index_label (str): Name of the index column.
         df (pd.DataFrame): DataFrame to write. Index will be saved under 'date'.
         logger (Logger): Logger for status messages.
     """
+    import sqlite3
+    
     # Skip if DataFrame is empty
     if df is None or df.empty:
         logger.warning(f"Skip saving table '{table_name}': empty DataFrame")
@@ -30,7 +31,7 @@ def save_to_sqlite(db_path: Path, table_name: str, df: pd.DataFrame, logger) -> 
     # Ensure parent dir exists and save to SQLite
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
-        df.to_sql(table_name, conn, if_exists="replace", index=True, index_label="date")
+        df.to_sql(table_name, conn, if_exists="replace", index=True, index_label=index_label)
     logger.info(f"Saved table '{table_name}' to SQLite database at '{db_path}'")
 
 
@@ -64,12 +65,21 @@ def fetch_etf_data(tickers: List[str], start: str, end: str, logger) -> pd.DataF
         if df.empty:
             logger.warning(f"No data downloaded for {t}")
             raise RuntimeError(f"No data downloaded for {t}. Check ticker and network.")
-        data[t] = df["Adj Close"].rename(t) # Use adjusted close prices
+        # Prefer 'Adj Close' if available, otherwise use 'Close'
+        if "Adj Close" in df.columns:
+            series = df["Adj Close"].copy()
+            series.name = t
+        elif "Close" in df.columns:
+            series = df["Close"].copy()
+            series.name = t
+        else:
+            raise KeyError(f"No 'Adj Close' or 'Close' column found for {t}")
+        data[t] = series
     if not data:
         raise RuntimeError("No ETF data downloaded. Check tickers and network.")
     
-    # Concatenate all dataframes into a single dataframe
-    etf_data = pd.concat(data.values(), axis=1, keys=data.keys())
+    # Concatenate dict of Series; columns will be the tickers
+    etf_data = pd.concat(data.values(), axis=1)
     etf_data.index.name = "date"
     return etf_data
 
@@ -162,6 +172,7 @@ def main(config_path: str, data_dir: str):
     """
     # Initialize logger
     logger = get_logger("data_loader")
+    logger.info("Starting data loading process...")
 
     # Load configuration
     with open(config_path, "r") as file:
@@ -182,6 +193,7 @@ def main(config_path: str, data_dir: str):
     if etf_benchmark in etf_tickers:
         logger.warning(f"Benchmark ETF '{etf_benchmark}' is also in the ETF tickers list. Removing it from tickers to avoid duplication.")
         etf_tickers.remove(etf_benchmark)
+    logger.info(f"Configuration loaded. ")
     
     # Define database directory
     data_dir = Path(data_dir)
@@ -196,28 +208,28 @@ def main(config_path: str, data_dir: str):
     out_path = raw_data_dir / "etf_data.csv"
     etf_data.to_csv(out_path)
     logger.info(f"Saved ETF data csv at: {out_path}")
-    
-    save_to_sqlite(db_path, "etf_data", etf_data, logger)
-    
+
+    save_to_sqlite(db_path, "etf_data", "date", etf_data, logger)
+
     # Save calendar index from etf data to csv and the database (for later time alignment)
-    cal = pd.DataFrame(index=etf_data.index.copy())
+    cal = pd.DataFrame({"trading_day": 1}, index=etf_data.index.copy())
     cal.index.name = "date"
     
     out_path = raw_data_dir / "calendar.csv"
     cal.to_csv(out_path)
     logger.info(f"Saved trading calendar data csv at: {out_path}")
 
-    save_to_sqlite(db_path, "calendar", cal, logger)
+    save_to_sqlite(db_path, "calendar", "date", cal, logger)
 
     # Fetch and store basic ETF-level fundamentals
     latest_prices = etf_data.iloc[-1]
-    fundamentals = fetch_etf_fundamentals(all_etf_tickers, latest_prices, logger)
+    fundamentals = fetch_etf_fundamentals(all_etf_tickers, logger)
     
     out_path = raw_data_dir / "etf_fundamentals.csv"
     fundamentals.to_csv(out_path)
     logger.info(f"Saved ETF fundamentals csv at: {out_path}")
-    
-    save_to_sqlite(db_path, "etf_fundamentals", fundamentals, logger)
+
+    save_to_sqlite(db_path, "etf_fundamentals", "ticker", fundamentals, logger)
 
     # Fetch and store FRED data into csv and the database
     fred_data = fetch_fred_data(fred_series, logger)
@@ -226,7 +238,7 @@ def main(config_path: str, data_dir: str):
         out_path = raw_data_dir / f"fred_{s}.csv"
         df.to_csv(out_path)
         logger.info(f"Saved FRED series {s} data csv at: {out_path}")
-        save_to_sqlite(db_path, s, df, logger)
+        save_to_sqlite(db_path, f"fred_{s}", "date", df, logger)
 
 
 
