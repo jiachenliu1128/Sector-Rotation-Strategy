@@ -151,9 +151,7 @@ def fetch_etf_fundamentals(tickers: List[str], logger) -> pd.DataFrame:
             raise RuntimeError(f"No fundamental data fetched for ticker {t}. Check ticker and network.")
         rows.append({
             "ticker": t,
-            "pe_trailing": info.get("trailingPE"),
-            "pe_forward": info.get("forwardPE"),
-            "eps_ttm": info.get("trailingEps"),
+            "pe": info.get("trailingPE"),
             "pb": info.get("priceToBook"),
             "dividend_yield": info.get("yield") 
         })
