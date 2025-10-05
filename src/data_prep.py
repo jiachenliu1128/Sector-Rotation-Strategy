@@ -69,7 +69,7 @@ def price_basic_clean(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def to_monthly_price(df: pd.DataFrame) -> pd.DataFrame:
+def to_prices_monthly(df: pd.DataFrame) -> pd.DataFrame:
     """Resample daily prices to month-end prices.
 
     Args:
@@ -85,7 +85,7 @@ def to_monthly_price(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def validate_monthly_price(df: pd.DataFrame, logger) -> None:
+def validate_prices_monthly(df: pd.DataFrame, logger) -> None:
     """Basic sanity checks; raise on fatal issues, log warnings otherwise.
     
     Args:
@@ -111,7 +111,7 @@ def validate_monthly_price(df: pd.DataFrame, logger) -> None:
         
         
 
-def save_monthly_price(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> None:
+def save_prices_monthly(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> None:
     """Save cleaned monthly prices to CSV and optionally to SQLite.
 
     Args:
@@ -166,11 +166,11 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
 
     # Clean, resample, validate
     prices_daily = price_basic_clean(prices_daily)
-    prices_monthly = to_monthly_price(prices_daily)
-    validate_monthly_price(prices_monthly, logger)
+    prices_monthly = to_prices_monthly(prices_daily)
+    validate_prices_monthly(prices_monthly, logger)
 
     # Save results
-    save_monthly_price(prices_monthly, out_csv, out_db, logger)
+    save_prices_monthly(prices_monthly, out_csv, out_db, logger)
 
 
 
