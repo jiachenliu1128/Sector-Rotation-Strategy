@@ -20,6 +20,7 @@ def load_prices_monthly(db_path: str, csv_path: str, logger) -> pd.DataFrame:
     """
     try:
         import sqlite3
+        db_path = Path(db_path)
         with sqlite3.connect(db_path) as conn:
             df = pd.read_sql("SELECT * FROM prices_monthly", conn, parse_dates=["date"]).set_index("date").sort_index()
         logger.info(f"Loaded monthly prices from SQLite Database at: {db_path} (table 'prices_monthly')")
