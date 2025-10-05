@@ -175,7 +175,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str,
         macd_cfg (tuple[int]): Configuration for MACD (fast, slow, signal).
     """
     # Get logger
-    logger = get_logger("features")
+    logger = get_logger("etf_compute_features")
 
     # Load monthly prices and compute features
     prices_monthly = load_prices_monthly(db_path, csv_path, logger)

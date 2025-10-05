@@ -152,7 +152,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         out_csv (str): Path to save cleaned monthly prices CSV.
         out_db (str): Path to SQLite DB to save cleaned monthly prices table.
     """
-    logger = get_logger("data_prep")
+    logger = get_logger("etf_data_prep")
     
     # Check db path, fallback to CSV if not exists
     prices_daily = None
