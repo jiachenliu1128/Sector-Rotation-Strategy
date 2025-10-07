@@ -117,7 +117,7 @@ def to_macro_monthly(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFra
 def add_macro_transforms(macro_monthly: pd.DataFrame, logger) -> pd.DataFrame:
     """Add common transformed macro features if source columns exist.
 
-    - CPI YoY from CPIAUCSL
+    - CPI YoY from CPIAUCSL, YoY stands for 12-month % change
     - GDP YoY from GDP
     - 10y-FF spread from DGS10 and FEDFUNDS
     - FEDFUNDS monthly change (Δ1m)
@@ -149,6 +149,36 @@ def add_macro_transforms(macro_monthly: pd.DataFrame, logger) -> pd.DataFrame:
         out["FEDFUNDS_chg1m"] = out["fred_FEDFUNDS"].diff(1)
     else:
         breakpoint()
+
+    return out
+
+
+
+
+def add_regime_tags(macro_monthly: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI_yoy",
+                    inflation_thresh=0.03) -> pd.DataFrame:
+    """
+    Add simple macro regime classification based on GDP and CPI YoY.
+
+    Args:
+        macro_df: DataFrame with GDP_yoy and CPI_yoy columns.
+        inflation_thresh: Threshold (e.g. 0.03 = 3%) for high vs low inflation.
+
+    Returns:
+        DataFrame with new columns: growth_regime, inflation_regime, regime_tag
+    """
+    out = macro_monthly.copy()
+
+    # Define sub-regimes
+    out["growth_regime"] = np.where(out[gdp_col] > 0, "Expansion", "Recession")
+    out["inflation_regime"] = np.where(out[cpi_col] > inflation_thresh, "HighInfl", "LowInfl")
+
+    # Combine
+    out["regime_tag"] = out["growth_regime"] + "_" + out["inflation_regime"]
+
+    # One-hot encode for modeling
+    regime_dummies = pd.get_dummies(out["regime_tag"], prefix="regime")
+    out = pd.concat([out, regime_dummies], axis=1)
 
     return out
 
@@ -206,9 +236,18 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         fred = load_fred_from_csv_dir(args.csv_dir)
         logger.info(f"Loaded {len(fred)} FRED CSV files from: {args.csv_dir}")
 
-    # Resample to monthly, merge and transform
-    macro_monthly = to_macro_monthly(fred, logger)
-    macro_monthly = add_macro_transforms(macro_monthly, logger)
+    try:
+        # Resample to monthly, merge and transform
+        macro_monthly = to_macro_monthly(fred, logger)
+        macro_monthly = add_macro_transforms(macro_monthly, logger)
+
+        # Add regime tags
+        macro_monthly = add_regime_tags(macro_monthly)
+        logger.info(f"Prepared macro monthly DataFrame with shape: {macro_monthly.shape}")
+        
+    except Exception as e:
+        logger.error(f"Error processing FRED data: {e}")
+        return
 
     # 4) Save
     out_db = args.out_db if args.out_db.strip() else None
