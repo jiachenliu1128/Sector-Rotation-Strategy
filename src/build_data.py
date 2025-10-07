@@ -161,7 +161,7 @@ def main(db: str, prices_csv: str, features_csv: str, macro_csv: str, benchmark:
     # Basic NA handling: drop rows with any NA in X or y (keep last row for live inference if desired)
     na_rows = X.index[X.isna().any(axis=1) | y.isna().any(axis=1)]
     if len(na_rows) > 0:
-        logger.warning(f"Dropping {len(na_rows)} rows with NaNs (features or targets).")
+        logger.warning(f"Dropping {len(na_rows)} rows with NaNs (in features or targets).")
         X = X.drop(index=na_rows)
         y = y.drop(index=na_rows)
 
