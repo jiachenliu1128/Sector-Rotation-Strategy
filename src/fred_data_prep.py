@@ -91,7 +91,7 @@ def to_macro_monthly(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFra
         # Ensure datetime index and monotonic
         s = s.sort_index()
         # Month-end sample then FFill for gaps 
-        s_m = s.resample("M").last().ffill()
+        s_m = s.resample("ME").last().ffill()
         s_m.name = name  
         monthly_frames.append(s_m.to_frame())
         
@@ -133,13 +133,13 @@ def add_macro_transforms(macro_monthly: pd.DataFrame, logger) -> pd.DataFrame:
 
     # CPI YoY
     if "fred_CPIAUCSL" in out.columns:
-        out["CPI_yoy"] = out["fred_CPIAUCSL"].pct_change(12)
+        out["CPI_yoy"] = out["fred_CPIAUCSL"].pct_change(12, fill_method=None)
     else:
         breakpoint()
 
     # GDP YoY (usually quarterly, but after ffill we can compute YoY on monthly frame)
     if "fred_GDP" in out.columns:
-        out["GDP_yoy"] = out["fred_GDP"].pct_change(12)
+        out["GDP_yoy"] = out["fred_GDP"].pct_change(12, fill_method=None)
     else:
         breakpoint()
 
