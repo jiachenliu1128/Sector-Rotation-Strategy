@@ -127,6 +127,72 @@ def get_model(task: str, kind: str, ridge_alpha: float = 10.0,
 
     else:
         raise ValueError("task must be 'regression' or 'classification'")
+    
+    
+    
+    
+    
+    
+
+
+def extract_feature_importance(model, X_train: pd.DataFrame, task: str, model_kind: str) -> pd.Series:
+    """
+    Return a pandas Series of feature importances indexed by X_train.columns.
+
+    For linear models: absolute value of coefficients (magnitude only).
+    For RandomForest: model.feature_importances_.
+    For XGBoost: booster.get_score(importance_type='gain'), mapped to column names.
+    If importance is unavailable, returns an empty Series.
+    
+    Args:
+        model: Trained model instance.
+        X_train (pd.DataFrame): Training features DataFrame.
+        task (str): Task type ("regression" or "classification").
+        model_kind (str): Model kind (e.g., "linreg", "rf", "xgb").
+        
+    Returns:
+        pd.Series: Feature importances indexed by feature names.
+    """
+    kind = model_kind.lower()
+    cols = list(X_train.columns)
+
+    # Linear / Ridge / Logistic (scikit-learn)
+    if hasattr(model, "coef_") and model.coef_ is not None:
+        coef = np.ravel(model.coef_)
+        if len(coef) == len(cols):
+            return pd.Series(np.abs(coef), index=cols, name="coef_abs")
+
+    # Random Forest
+    if hasattr(model, "feature_importances_") and model.feature_importances_ is not None:
+        imp = np.array(model.feature_importances_)
+        if len(imp) == len(cols):
+            return pd.Series(imp, index=cols, name="rf_importance")
+
+    # XGBoost (sklearn wrapper)
+    if kind == "xgb" and hasattr(model, "get_booster"):
+        try:
+            booster = model.get_booster()
+            raw = booster.get_score(importance_type="gain")  
+            feat_names = booster.feature_names
+            if feat_names is None:
+                # Map f{i} -> pandas columns
+                mapped = {}
+                for k, v in raw.items():
+                    if k.startswith("f") and k[1:].isdigit():
+                        i = int(k[1:])
+                        if 0 <= i < len(cols):
+                            mapped[cols[i]] = v
+                return pd.Series(mapped, name="xgb_gain")
+            else:
+                # keep only columns present in X
+                ser = pd.Series(raw, dtype=float, name="xgb_gain")
+                ser = ser.reindex(cols, fill_value=0.0)
+                return ser
+        except Exception:
+            pass
+
+    # Fallback: no importances
+    return pd.Series(dtype=float)
 
 
 
@@ -162,6 +228,7 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, floa
 
 
 
+
 def classification_metrics(y_true_cls: np.ndarray, y_prob: Optional[np.ndarray], y_pred_cls: np.ndarray) -> Dict[str, float]:
     acc = accuracy_score(y_true_cls, y_pred_cls)
     prec = precision_score(y_true_cls, y_pred_cls, zero_division=0)
@@ -184,7 +251,7 @@ def classification_metrics(y_true_cls: np.ndarray, y_prob: Optional[np.ndarray],
 
 
 
-def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Run walk-forward Cross Validation and model training.
     
     Args:
@@ -218,9 +285,11 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
     # Store predictions and metrics
     preds_records: List[Dict] = []
     metrics_records: List[Dict] = []
+    feature_importance_records: List[Dict] = []
 
     # For each fold and each ticker, train model and predict
     for fold_no, (tr_idx, te_idx) in enumerate(splitter.split(X), start=1):
+        # Get values and dates for this fold by index
         X_tr, X_te = X.iloc[tr_idx], X.iloc[te_idx]
         dates_te = X_te.index
 
@@ -237,6 +306,9 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
             # Build model
             model = get_model(cfg.task, cfg.model, cfg.ridge_alpha, cfg.rf_estimators, cfg.rf_depth, cfg.logit_C)
 
+            ####################################################################
+            # Regression
+            ####################################################################
             if cfg.task == "regression":
                 # Drop NaNs in train, fit the model and predict
                 mtr = np.isfinite(y_tr_raw)
@@ -261,8 +333,22 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
                     m = regression_metrics(y_te_raw[mask], y_pred[mask])
                     m.update({"fold": fold_no, "ticker": ticker})
                     metrics_records.append(m)
+                    
+                # Store feature importances
+                fi = extract_feature_importance(model, X_tr_s[mtr], cfg.task, cfg.model)
+                if fi is not None and len(fi) > 0:
+                    for feat, val in fi.items():
+                        feature_importance_records.append({
+                            "fold": fold_no,
+                            "ticker": ticker,
+                            "feature": str(feat),
+                            "importance": float(val),
+                        })
 
-            else:  # classification (directional)
+            ####################################################################
+            # Classification
+            ####################################################################
+            else:  
                 # Create binary labels using threshold
                 y_tr_cls = (y_tr_raw > cfg.direction_threshold).astype(int)
                 y_te_cls = (y_te_raw > cfg.direction_threshold).astype(int)
@@ -305,7 +391,19 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
                     m = classification_metrics(yt, pr, yp)
                     m.update({"fold": fold_no, "ticker": ticker})
                     metrics_records.append(m)
+                    
+                # Store feature importances
+                fi = extract_feature_importance(model, X_tr_s[mtr], cfg.task, cfg.model)
+                if fi is not None and len(fi) > 0:
+                    for feat, val in fi.items():
+                        feature_importance_records.append({
+                            "fold": fold_no,
+                            "ticker": ticker,
+                            "feature": str(feat),
+                            "importance": float(val),
+                        })
 
+    # Convert to DataFrames and return
     predictions_long = pd.DataFrame(preds_records).sort_values(["date", "ticker"]) if preds_records else pd.DataFrame()
     metrics_long = pd.DataFrame(metrics_records).sort_values(["fold", "ticker"]) if metrics_records else pd.DataFrame()
     return predictions_long, metrics_long
