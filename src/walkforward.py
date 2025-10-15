@@ -8,10 +8,11 @@ import pandas as pd
 def walkforward_splits(
     index: pd.Index,
     train_size: int = 60,
-    test_size: int = 12,
-    step: int = 12,
+    test_size: int = 1,
+    step: int = 1,
     expanding: bool = True,
     embargo: int = 0,
+    verbose: bool = False,
 ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
     """
     Yield (train_idx, test_idx) integer arrays for walk-forward CV.
@@ -19,6 +20,7 @@ def walkforward_splits(
     Args:
         index : sequence of labels (DataFrame.index)
         train_size, test_size, step, expanding, embargo : see `WalkForwardConfig` below.
+        verbose : bool, if True prints progress information
 
     Yields:
     (train_idx, test_idx) : tuple of np.ndarray
@@ -29,13 +31,24 @@ def walkforward_splits(
     if train_size <= 0 or test_size <= 0 or step <= 0:
         raise ValueError("train_size, test_size, and step must be positive integers")
     if train_size + test_size > n:
+        if verbose:
+            print(f"Warning: train_size ({train_size}) + test_size ({test_size}) > data length ({n}). No splits generated.")
         return 
+
+    if verbose:
+        mode = "expanding" if expanding else "rolling"
+        print(f"Generating walk-forward splits in {mode} mode...")
+        print(f"Data period: {index[0]} to {index[-1]} ({n} observations)")
+        print(f"Config: train_size={train_size}, test_size={test_size}, step={step}, embargo={embargo}")
+
+    fold_count = 0 
 
     # Generate splits if expanding or rolling
     if expanding:
         # Initial expanding windows
         train_end = train_size  
         test_end = train_end + test_size
+        
         # Expanding train windows
         while test_end <= n:
             train_start = 0
@@ -44,15 +57,25 @@ def walkforward_splits(
             train = np.arange(train_start, emb_end)
             test = np.arange(train_end, test_end)
             if len(train) > 0 and len(test) > 0:
+                fold_count += 1
+                if verbose:
+                    print(f"  Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
+                          f"Test {index[test[0]]} to {index[test[-1]]} ({len(test)} obs)")
                 yield train, test
+                
+            # Stop if we've reached the end
+            if test_end == n:
+                break  
             # Next fold
             train_end = min(train_end + step, n)
             test_end = min(train_end + test_size, n)
+            
     else:
         # Rolling train windows
         train_start = 0
         train_end = train_start + train_size
         test_end = train_end + test_size
+        
         # Fixed-length rolling
         while test_end <= n:
             # Apply embargo by trimming from train_end
@@ -60,11 +83,23 @@ def walkforward_splits(
             train = np.arange(train_start, emb_end)
             test = np.arange(train_end, test_end)
             if len(train) > 0 and len(test) > 0:
+                fold_count += 1
+                if verbose:
+                    print(f"  Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
+                          f"Test {index[test[0]]} to {index[test[-1]]} ({len(test)} obs)")
                 yield train, test
+                
+            # Stop if we've reached the end
+            if test_end == n:
+                break
             # Next fold
             train_start = train_start + step
             train_end = train_start + train_size
             test_end = train_end + test_size
+            
+    
+    if verbose:
+        print(f"Generated {fold_count} walk-forward splits")
             
             
       
@@ -88,12 +123,15 @@ class WFConfig:
         embargo : int
             Number of observations to exclude at the *end* of the training set before the test period
             (helps reduce leakage when features target near-future info). 0 disables embargo.
+        verbose : bool
+            If True, prints progress information during split generation.
     """
     train_size: int = 60
-    test_size: int = 12
-    step: int = 12
+    test_size: int = 1
+    step: int = 1
     expanding: bool = True
     embargo: int = 0
+    verbose: bool = False
 
 
 
@@ -109,6 +147,8 @@ class WFCV:
     def get_n_splits(self, X: Optional[pd.DataFrame]=None, y=None, groups=None) -> int:
         if X is None:
             raise ValueError("get_n_splits requires X with an index to determine length")
+        if self.config.verbose:
+            print("Counting walk-forward splits...")
         count = 0
         for _ in walkforward_splits(
             X.index,
@@ -117,8 +157,11 @@ class WFCV:
             step=self.config.step,
             expanding=self.config.expanding,
             embargo=self.config.embargo,
+            verbose=False,  # Don't print individual folds when just counting
         ):
             count += 1
+        if self.config.verbose:
+            print(f"Total splits: {count}")
         return count
 
     def split(self, X: Optional[pd.DataFrame]=None, y=None, groups=None) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
@@ -131,6 +174,7 @@ class WFCV:
             step=self.config.step,
             expanding=self.config.expanding,
             embargo=self.config.embargo,
+            verbose=self.config.verbose,
         ):
             yield train, test
 
@@ -139,7 +183,8 @@ class WFCV:
 
 
 def demo_from_csv(csv_path: str, date_col: str = "date", train_size: int = 60,
-    test_size: int = 12, step: int = 12, expanding: bool = True, embargo: int = 0) -> pd.DataFrame:
+    test_size: int = 1, step: int = 1, expanding: bool = True, embargo: int = 0, 
+    verbose: bool = True) -> pd.DataFrame:
     """Utility to preview folds from a CSV that has a `date` column.
     
     Args:
@@ -150,16 +195,25 @@ def demo_from_csv(csv_path: str, date_col: str = "date", train_size: int = 60,
         step (int): Step size for the rolling window.
         expanding (bool): Whether to use an expanding window.
         embargo (int): Embargo period to prevent leakage.
+        verbose (bool): Whether to print progress information.
 
     Return:
     A small DataFrame listing fold numbers and date spans for train/test.
     """
+    if verbose:
+        print(f"Loading data from {csv_path}...")
+    
     # Read CSV with date parsing and sorting
     df = pd.read_csv(csv_path, parse_dates=[date_col]).set_index(date_col).sort_index()
     idx = df.index
+    
+    if verbose:
+        print(f"Loaded {len(df)} rows from {idx[0]} to {idx[-1]}")
+    
     rows = []
     # Generate splits
-    splits = walkforward_splits(idx, train_size=train_size, test_size=test_size, step=step, expanding=expanding, embargo=embargo)
+    splits = walkforward_splits(idx, train_size=train_size, test_size=test_size, step=step, 
+                               expanding=expanding, embargo=embargo, verbose=verbose)
 
     # Log each fold 
     for k, (train, test) in enumerate(splits):
@@ -174,13 +228,17 @@ def demo_from_csv(csv_path: str, date_col: str = "date", train_size: int = 60,
                 "n_test": len(test),
             }
         )
+    
+    if verbose:
+        print(f"Created summary for {len(rows)} folds")
+    
     return pd.DataFrame(rows)
 
 
 
 
 
-def main(csv_path: str, date_col: str, train_size: int, test_size: int, step: int, expanding: bool, embargo: int) -> None:
+def main(csv_path: str, date_col: str, train_size: int, test_size: int, step: int, expanding: bool, embargo: int, verbose: bool = True) -> None:
     """Run the walk-forward cross-validation demo.
 
     Args:
@@ -191,10 +249,11 @@ def main(csv_path: str, date_col: str, train_size: int, test_size: int, step: in
         step (int): Step size for the rolling window.
         expanding (bool): Whether to use an expanding window.
         embargo (int): Embargo period to prevent leakage.
+        verbose (bool): Whether to print progress information.
     """
     summary = demo_from_csv(csv_path, date_col=date_col, train_size=train_size, 
                             test_size=test_size, step=step, expanding=expanding,
-                            embargo=embargo)
+                            embargo=embargo, verbose=verbose)
     
     # Print a summary of the folds
     if summary.empty:
@@ -214,14 +273,15 @@ if __name__ == "__main__":
     args.add_argument("--date_col", default="date", help="Name of date column in CSV")
     
     args.add_argument("--train_size", type=int, default=60, help="Training window size (months)")
-    args.add_argument("--test_size", type=int, default=12, help="Testing window size (months)")
-    args.add_argument("--step", type=int, default=12, help="Step size (months), how far to move window each fold")
+    args.add_argument("--test_size", type=int, default=1, help="Testing window size (months)")
+    args.add_argument("--step", type=int, default=1, help="Step size (months), how far to move window each fold")
 
     args.add_argument("--expanding", action="store_true", help="Use expanding window, includes all available past data if True")
     args.add_argument("--rolling", dest="expanding", action="store_false", help="Use rolling window instead")
     args.set_defaults(expanding=True)
 
     args.add_argument("--embargo", type=int, default=0, help="Embargo period (months) to prevent leakage, 0 disables embargo")
+    args.add_argument("--verbose", action="store_true", help="Print progress information")
 
     args = args.parse_args()
-    main(args.csv, args.date_col, args.train_size, args.test_size, args.step, args.expanding, args.embargo)
+    main(args.csv, args.date_col, args.train_size, args.test_size, args.step, args.expanding, args.embargo, args.verbose)
