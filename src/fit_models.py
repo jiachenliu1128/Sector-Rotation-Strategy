@@ -17,7 +17,7 @@ from sklearn.metrics import (
 
 from xgboost import XGBRegressor, XGBClassifier
 
-from .walkforward import WFCV, WFConfig
+from src.walkforward import WFCV, WFConfig
 
 
 
@@ -61,8 +61,8 @@ class RunConfig:
     rf_depth: Optional[int] = None
     logit_C: float = 1.0
     train_size: int = 60
-    test_size: int = 12
-    step: int = 12
+    test_size: int = 1
+    step: int = 1
     expanding: bool = True
     embargo: int = 0
     direction_threshold: float = 0.0   
@@ -280,6 +280,7 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
         step=cfg.step,
         expanding=cfg.expanding,
         embargo=cfg.embargo,
+        verbose=True,  
     ))
 
     # Store predictions and metrics
@@ -288,7 +289,13 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
     feature_importance_records: List[Dict] = []
 
     # For each fold and each ticker, train model and predict
+    total_folds = len(list(splitter.split(X)))
+    print(f"Starting walk-forward CV with {total_folds} folds and {len(tickers)} tickers...")
+    
     for fold_no, (tr_idx, te_idx) in enumerate(splitter.split(X), start=1):
+        print(f"\nFold {fold_no}/{total_folds} - Training period: {X.index[tr_idx[0]].strftime('%Y-%m')} to {X.index[tr_idx[-1]].strftime('%Y-%m')}, "
+              f"Test period: {X.index[te_idx[0]].strftime('%Y-%m')} to {X.index[te_idx[-1]].strftime('%Y-%m')}")
+        
         # Get values and dates for this fold by index
         X_tr, X_te = X.iloc[tr_idx], X.iloc[te_idx]
         dates_te = X_te.index
@@ -299,7 +306,8 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
         X_te_s = pd.DataFrame(scaler.transform(X_te), index=X_te.index, columns=X_te.columns)
 
         # For each ticker/column in y
-        for col, ticker in zip(y.columns, tickers):
+        for ticker_idx, (col, ticker) in enumerate(zip(y.columns, tickers), start=1):
+            print(f"  Processing ticker {ticker_idx}/{len(tickers)}: {ticker}", end=" ... ")
             y_tr_raw = y.iloc[tr_idx][col].values
             y_te_raw = y.iloc[te_idx][col].values
 
@@ -313,9 +321,11 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
                 # Drop NaNs in train, fit the model and predict
                 mtr = np.isfinite(y_tr_raw)
                 if mtr.sum() < 10:
+                    print("insufficient data")
                     continue
                 model.fit(X_tr_s[mtr], y_tr_raw[mtr])
                 y_pred = model.predict(X_te_s)
+                print("done")
 
                 # Store predictions
                 for d, yt, yp in zip(dates_te.values, y_te_raw, y_pred):
@@ -356,8 +366,10 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
                 # Drop NaNs in train and fit the model
                 mtr = np.isfinite(y_tr_raw)
                 if mtr.sum() < 10:
+                    print("insufficient data")
                     continue
                 model.fit(X_tr_s[mtr], y_tr_cls[mtr])
+                print("done")
 
                 # Get predicted probabilities and classes
                 if hasattr(model, "predict_proba"):
@@ -406,6 +418,10 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
     # Convert to DataFrames and return
     predictions_long = pd.DataFrame(preds_records).sort_values(["date", "ticker"]) if preds_records else pd.DataFrame()
     metrics_long = pd.DataFrame(metrics_records).sort_values(["fold", "ticker"]) if metrics_records else pd.DataFrame()
+    
+    print(f"\nWalk-forward CV completed!")
+    print(f"Generated {len(predictions_long)} predictions across {total_folds} folds and {len(tickers)} tickers")
+    
     return predictions_long, metrics_long
 
 
@@ -507,8 +523,8 @@ if __name__ == "__main__":
 
     # Walk-forward
     args.add_argument("--train_size", type=int, default=60)
-    args.add_argument("--test_size", type=int, default=12)
-    args.add_argument("--step", type=int, default=12)
+    args.add_argument("--test_size", type=int, default=1)
+    args.add_argument("--step", type=int, default=1)
     args.add_argument("--expanding", action="store_true")
     args.add_argument("--rolling", dest="expanding", action="store_false")
     args.set_defaults(expanding=True)
