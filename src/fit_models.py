@@ -17,7 +17,7 @@ from sklearn.metrics import (
 
 from xgboost import XGBRegressor, XGBClassifier
 
-from src.walkforward import WFCV, WFConfig
+from walkforward import WFCV, WFConfig
 
 
 
@@ -211,7 +211,7 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, floa
     """
     mae = mean_absolute_error(y_true, y_pred)
     rmse = root_mean_squared_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred) if len(y_true) > 1 else np.nan
     
     # Hit ratio: sign correctness (ignore zeros)
     signs_true = np.sign(y_true)
@@ -418,11 +418,12 @@ def run_walkforward(X: pd.DataFrame, y: pd.DataFrame, cfg: RunConfig) -> Tuple[p
     # Convert to DataFrames and return
     predictions_long = pd.DataFrame(preds_records).sort_values(["date", "ticker"]) if preds_records else pd.DataFrame()
     metrics_long = pd.DataFrame(metrics_records).sort_values(["fold", "ticker"]) if metrics_records else pd.DataFrame()
+    feature_importances_long = pd.DataFrame(feature_importance_records).sort_values(["fold", "ticker", "feature"]) if feature_importance_records else pd.DataFrame()
     
     print(f"\nWalk-forward CV completed!")
     print(f"Generated {len(predictions_long)} predictions across {total_folds} folds and {len(tickers)} tickers")
-    
-    return predictions_long, metrics_long
+
+    return predictions_long, metrics_long, feature_importances_long
 
 
 
@@ -479,23 +480,31 @@ def main(db: str, X_table: str, y_table: str, X_csv: str, y_csv: str,
     )
 
     # Run walk-forward Cross Validation and fit models
-    preds, metrics = run_walkforward(X, y, cfg)
+    preds, metrics, feature_importances = run_walkforward(X, y, cfg)
 
     # Save outputs
-    out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"{task}_{model}"
+    
     preds_path = out_dir / f"predictions_{suffix}.csv"
     metrics_path = out_dir / f"metrics_{suffix}.csv"
+    feature_importances_path = out_dir / f"feature_importances_{suffix}.csv"
+
     preds.to_csv(preds_path, index=False)
     metrics.to_csv(metrics_path, index=False)
-    print(f"Saved predictions -> {preds_path}")
-    print(f"Saved metrics     -> {metrics_path}")
+    feature_importances.to_csv(feature_importances_path, index=False)
+
+    print(f"Saved predictions         -> {preds_path}")
+    print(f"Saved metrics             -> {metrics_path}")
+    print(f"Saved feature importances -> {feature_importances_path}")
 
     if save_db:
         with sqlite3.connect(db) as conn:
             preds.to_sql(f"predictions_{suffix}", conn, if_exists="replace", index=False)
             metrics.to_sql(f"metrics_{suffix}", conn, if_exists="replace", index=False)
-        print(f"Also wrote to SQLite tables: predictions_{suffix}, metrics_{suffix}")
+            feature_importances.to_sql(f"feature_importances_{suffix}", conn, if_exists="replace", index=False)
+        print(f"Also wrote to SQLite tables: predictions_{suffix}, metrics_{suffix}, feature_importances_{suffix}")
 
 
 
@@ -534,7 +543,7 @@ if __name__ == "__main__":
     args.add_argument("--direction_threshold", type=float, default=0.0, help="Label threshold: y > thr => class 1")
 
     # Output
-    args.add_argument("--out_dir", default="data/processed")
+    args.add_argument("--out_dir", default="data/predictions")
     args.add_argument("--save_db", action="store_true", help="Also write predictions/metrics to SQLite")
     args = args.parse_args()
 
