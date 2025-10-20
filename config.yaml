@@ -1,6 +1,6 @@
 date_range:
-  start: "2010-01-01"
-  end: "2025-01-28"  
+  start: "2000-01-01"
+  end: "2025-09-01"  
 
 etf_tickers:
   - XLF   # Financials
