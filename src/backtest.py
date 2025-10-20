@@ -509,8 +509,8 @@ if __name__ == "__main__":
     # Task: regression or classification
     p.add_argument("--task", choices=["regression", "classification"], default="regression")
     
-    # Models: regression -> linreg|ridge|rf|xgb ; classification -> logit|rf|xgb
-    p.add_argument("--model", choices=["linreg", "ridge", "logit", "rf", "xgb"], default="ridge")
+    # Models: regression -> ridge|rf|xgb ; classification -> logit|rf|xgb
+    p.add_argument("--model", choices=["ridge", "logit", "rf", "xgb"], default="ridge")
     
     # Predictions source that override default table name
     p.add_argument("--preds_table", default=None, help="Override predictions table name")
