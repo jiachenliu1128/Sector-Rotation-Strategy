@@ -12,7 +12,7 @@ etf_tickers:
   - XLY   # Consumer Discretionary
   - XLB   # Materials
   - XLU   # Utilities
-  - XLRE  # Real Estate
+#  - XLRE  # Real Estate
 
 etf_benchmark: SPY
 
