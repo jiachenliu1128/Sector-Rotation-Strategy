@@ -22,10 +22,10 @@ def load_fred_from_sqlite(db_path: str) -> dict[str, pd.DataFrame]:
     # Get list of fred_* tables
     out = {}
     q = "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fred_%' ORDER BY name;"
-    tables = [r[0] for r in conn.execute(q).fetchall()]
     
     # Load each table
     with sqlite3.connect(db_path) as conn:
+        tables = [r[0] for r in conn.execute(q).fetchall()]
         for t in tables:
             # Load table into DataFrame
             df = pd.read_sql(f"SELECT * FROM {t}", conn, parse_dates=["date"])
@@ -180,6 +180,9 @@ def add_regime_tags(macro_monthly: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI
     regime_dummies = pd.get_dummies(out["regime_tag"], prefix="regime")
     out = pd.concat([out, regime_dummies], axis=1)
 
+    # Remove intermediate columns
+    out = out.drop(columns=["growth_regime", "inflation_regime", "regime_tag"])
+
     return out
 
 
@@ -229,12 +232,12 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
 
     # Load FRED series
     try:
-        fred = load_fred_from_sqlite(args.db)
-        logger.info(f"Loaded {len(fred)} FRED tables from SQLite Database at: {args.db}")
+        fred = load_fred_from_sqlite(db_path)
+        logger.info(f"Loaded {len(fred)} FRED tables from SQLite Database at: {db_path}")
     except Exception as e:
-        logger.warning(f"SQLite load failed ({e}); trying CSV dir: {args.csv_dir}")
-        fred = load_fred_from_csv_dir(args.csv_dir)
-        logger.info(f"Loaded {len(fred)} FRED CSV files from: {args.csv_dir}")
+        logger.warning(f"SQLite load failed ({e}); trying CSV dir: {csv_path}")
+        fred = load_fred_from_csv_dir(csv_path)
+        logger.info(f"Loaded {len(fred)} FRED CSV files from: {csv_path}")
 
     try:
         # Resample to monthly, merge and transform
@@ -250,8 +253,8 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         return
 
     # 4) Save
-    out_db = args.out_db if args.out_db.strip() else None
-    save_macro(macro_monthly, args.out_csv, out_db, logger)
+    out_db = out_db if out_db.strip() else None
+    save_macro(macro_monthly, out_csv, out_db, logger)
 
 
 
