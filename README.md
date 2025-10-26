@@ -39,5 +39,4 @@ Adjust CLI flags (e.g., window sizes, model type, long-short mode) to experiment
 ## TODO:
 1. Use daily data instead of monthly
 2. Use deep learning models (LSTM, GRU, Transformer)
-3. Use NLP
-4. Create dashboard
+3. Create dashboard
