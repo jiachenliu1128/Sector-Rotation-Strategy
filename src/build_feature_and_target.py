@@ -36,24 +36,24 @@ def read_table(db: str, table: str, csv_fallback: str | None = None) -> pd.DataF
 
 
 
-def get_targets(prices_monthly: pd.DataFrame, benchmark: str = "SPY") -> pd.DataFrame:
+def get_targets(prices_daily: pd.DataFrame, benchmark: str = "SPY") -> pd.DataFrame:
     """
-    Target: next-month excess return vs benchmark.
+    Target: next-day excess return vs benchmark.
     y_{i,t+1} = r_{i,t+1} - r_{bench,t+1}
     
     Args:
-        prices_monthly (pd.DataFrame): Monthly prices with tickers as columns.
+        prices_daily (pd.DataFrame): Daily prices with tickers as columns.
         benchmark (str): Benchmark ticker for excess return calculation.
         
     Returns:
         pd.DataFrame: DataFrame of targets with columns y_{ticker}.
     """
-    # Monthly returns of all tickers
-    r1 = prices_monthly.pct_change(1)  
+    # Daily returns of all tickers
+    r1 = prices_daily.pct_change(1)  
     if benchmark not in r1.columns:
-        raise KeyError(f"Benchmark '{benchmark}' not in monthly prices columns.")
+        raise KeyError(f"Benchmark '{benchmark}' not in daily prices columns.")
     
-    # Excess return next month
+    # Excess return next day
     y = r1.sub(r1[benchmark], axis=0) 
     y = y.shift(-1) 
     
@@ -70,22 +70,22 @@ def get_targets(prices_monthly: pd.DataFrame, benchmark: str = "SPY") -> pd.Data
 
 
 
-def align_and_join(features_monthly: pd.DataFrame, macro_monthly: pd.DataFrame) -> pd.DataFrame:
+def align_and_join(features_daily: pd.DataFrame, macro_daily: pd.DataFrame) -> pd.DataFrame:
     """
     Broadcast macro alongside per-ticker features and join. 
     
     Args:
-        features_monthly (pd.DataFrame): Monthly features with tickers as columns.
-        macro_monthly (pd.DataFrame): Monthly macro data with same index as features_monthly.
+        features_daily (pd.DataFrame): Daily features with tickers as columns.
+        macro_daily (pd.DataFrame): Daily macro data with same index as features_daily.
         
     Returns:
         pd.DataFrame: Combined DataFrame with features and macro data.
     """
     # Ensure flat macro columns
-    macro_monthly = macro_monthly.copy()
-    macro_monthly.columns = [str(c) for c in macro_monthly.columns]
-    # Join (inner keeps only overlapping months)
-    X = features_monthly.join(macro_monthly, how="inner")
+    macro_daily = macro_daily.copy()
+    macro_daily.columns = [str(c) for c in macro_daily.columns]
+    # Join (inner keeps only overlapping days)
+    X = features_daily.join(macro_daily, how="inner")
     return X
 
 
@@ -132,9 +132,9 @@ def main(db: str, prices_csv: str, features_csv: str, macro_csv: str, benchmark:
     
     Args:
         db (str): Path to SQLite DB with input tables.
-        prices_csv (str): Fallback CSV for prices_monthly if DB read fails.
-        features_csv (str): Fallback CSV for features_monthly if DB read fails.
-        macro_csv (str): Fallback CSV for macro_monthly if DB read fails.
+        prices_csv (str): Fallback CSV for prices_daily if DB read fails.
+        features_csv (str): Fallback CSV for features_daily if DB read fails.
+        macro_csv (str): Fallback CSV for macro_daily if DB read fails.
         benchmark (str): Benchmark ticker for excess return target.
         out_dir (str): Directory to save output CSV files.
         out_db (str): SQLite DB to save output tables (if empty, skip).
@@ -143,15 +143,15 @@ def main(db: str, prices_csv: str, features_csv: str, macro_csv: str, benchmark:
     logger = get_logger("build_dataset")
 
     # Load data
-    prices_monthly = read_table(db, "prices_monthly", csv_fallback=prices_csv)
-    features_monthly = read_table(db, "features_monthly", csv_fallback=features_csv)
-    macro_monthly = read_table(db, "macro_monthly", csv_fallback=macro_csv)
+    prices_daily = read_table(db, "prices_daily", csv_fallback=prices_csv)
+    features_daily = read_table(db, "features_daily", csv_fallback=features_csv)
+    macro_daily = read_table(db, "macro_daily", csv_fallback=macro_csv)
 
     # Calculate targets based on benchmark excess returns
-    y = get_targets(prices_monthly, benchmark)
+    y = get_targets(prices_daily, benchmark)
 
     # Align feature rows to target index 
-    X = align_and_join(features_monthly, macro_monthly)
+    X = align_and_join(features_daily, macro_daily)
     
     # Keep dates where we have both X_t and y_{t+1}
     common_idx = X.index.intersection(y.index)
@@ -175,10 +175,10 @@ def main(db: str, prices_csv: str, features_csv: str, macro_csv: str, benchmark:
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description="Build modeling dataset: join features + macro and create targets.")
-    args.add_argument("--db", default="data/data.db", help="SQLite DB with prices_monthly, features_monthly, macro_monthly")
-    args.add_argument("--prices_csv", default="data/processed/prices_monthly.csv")
-    args.add_argument("--features_csv", default="data/processed/features_monthly.csv")
-    args.add_argument("--macro_csv", default="data/processed/macro_monthly.csv")
+    args.add_argument("--db", default="data/data.db", help="SQLite DB with prices_daily, features_daily, macro_daily")
+    args.add_argument("--prices_csv", default="data/processed/prices_daily.csv")
+    args.add_argument("--features_csv", default="data/processed/features_daily.csv")
+    args.add_argument("--macro_csv", default="data/processed/macro_daily.csv")
     args.add_argument("--benchmark", default="SPY")
     args.add_argument("--out_csv_dir", default="data/processed")
     args.add_argument("--out_db", default="data/data.db")

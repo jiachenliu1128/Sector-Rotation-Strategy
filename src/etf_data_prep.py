@@ -69,53 +69,53 @@ def price_basic_clean(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def to_prices_monthly(df: pd.DataFrame) -> pd.DataFrame:
-    """Resample daily prices to month-end prices.
+def to_prices_daily(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep daily prices as is (no resampling).
 
     Args:
         df (pd.DataFrame): Daily prices DataFrame with DatetimeIndex.
 
     Returns:
-        pd.DataFrame: Monthly prices DataFrame with month-end dates as index.
+        pd.DataFrame: Daily prices DataFrame with date as index.
     """
-    monthly = df.resample("ME").last()
-    monthly.index.name = "date"
-    return monthly
+    daily = df.copy()
+    daily.index.name = "date"
+    return daily
 
 
 
 
-def validate_prices_monthly(df: pd.DataFrame, logger) -> None:
+def validate_prices_daily(df: pd.DataFrame, logger) -> None:
     """Basic sanity checks; raise on fatal issues, log warnings otherwise.
     
     Args:
-        df (pd.DataFrame): Monthly prices DataFrame.
+        df (pd.DataFrame): Daily prices DataFrame.
         logger (Logger): Logger for status messages.
 
         Raises:
             ValueError: If any validation checks fail.
     """
     if df.empty:
-        raise ValueError("Monthly prices are empty after resampling.")
+        raise ValueError("Daily prices are empty.")
     if df.index.has_duplicates:
-        raise ValueError("Monthly prices index has duplicate dates.")
+        raise ValueError("Daily prices index has duplicate dates.")
     if not df.index.is_monotonic_increasing:
-        raise ValueError("Monthly prices index is not sorted.")
+        raise ValueError("Daily prices index is not sorted.")
     
     # Warn on missing values
     na_percentage = df.isna().mean().sort_values(ascending=False)
     has_na = na_percentage[na_percentage > 0]
     if not has_na.empty:
-        logger.warning("Monthly prices contain NaNs. Top offenders:\n%s", has_na.head(10))
+        logger.warning("Daily prices contain NaNs. Top offenders:\n%s", has_na.head(10))
         
         
         
 
-def save_prices_monthly(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> None:
-    """Save cleaned monthly prices to CSV and optionally to SQLite.
+def save_prices_daily(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> None:
+    """Save cleaned daily prices to CSV and optionally to SQLite.
 
     Args:
-        df (pd.DataFrame): Monthly prices DataFrame.
+        df (pd.DataFrame): Daily prices DataFrame.
         out_csv (str): Path to save CSV file.
         out_sqlite (str): Path to SQLite DB file to save table (if empty, skip).
         logger (Logger): Logger for status messages.
@@ -127,30 +127,30 @@ def save_prices_monthly(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> 
         
         try:
             with sqlite3.connect(out_db) as conn:
-                df.to_sql("prices_monthly", conn, if_exists="replace", index=True, index_label="date")
-            logger.info(f"Saved monthly prices table to SQLite DB at: {out_db} (table 'prices_monthly')")
+                df.to_sql("prices_daily", conn, if_exists="replace", index=True, index_label="date")
+            logger.info(f"Saved daily prices table to SQLite DB at: {out_db} (table 'prices_daily')")
         except Exception as e:
-            logger.warning(f"Failed to save monthly prices table to SQLite DB at: {out_db}. Error: {e}. Skipping.")
+            logger.warning(f"Failed to save daily prices table to SQLite DB at: {out_db}. Error: {e}. Skipping.")
 
     # Save CSV
     if out_csv:
         out_csv = Path(out_csv)
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out_csv)
-        logger.info(f"Saved monthly prices CSV to: {out_csv}")
+        logger.info(f"Saved daily prices CSV to: {out_csv}")
 
 
 
 
 
 def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
-    """Main function to load, clean, resample ETF data and save to CSV/SQLite.
+    """Main function to load, clean ETF data and save to CSV/SQLite (daily frequency).
 
     Args:
         db_path (str): Path to SQLite DB with raw ETF data.
         csv_path (str): Path to CSV file with raw ETF data if SQLite not available.
-        out_csv (str): Path to save cleaned monthly prices CSV.
-        out_db (str): Path to SQLite DB to save cleaned monthly prices table.
+        out_csv (str): Path to save cleaned daily prices CSV.
+        out_db (str): Path to SQLite DB to save cleaned daily prices table.
     """
     logger = get_logger("etf_data_prep")
     
@@ -164,13 +164,13 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         prices_daily = load_prices_fallback_csv(csv_path)
         logger.info(f"Loaded daily prices from CSV at: {csv_path}")
 
-    # Clean, resample, validate
+    # Clean and validate (no resampling to monthly)
     prices_daily = price_basic_clean(prices_daily)
-    prices_monthly = to_prices_monthly(prices_daily)
-    validate_prices_monthly(prices_monthly, logger)
+    prices_daily = to_prices_daily(prices_daily)
+    validate_prices_daily(prices_daily, logger)
 
     # Save results
-    save_prices_monthly(prices_monthly, out_csv, out_db, logger)
+    save_prices_daily(prices_daily, out_csv, out_db, logger)
 
 
 
@@ -183,10 +183,10 @@ if __name__ == "__main__":
     parser.add_argument("--db", type=str, default="data/data.db", help="Path to SQLite DB with table 'etf_data'.")
     parser.add_argument("--csv", type=str, default="data/raw/etf_data.csv",
                         help="CSV file to use if SQLite not available.")
-    parser.add_argument("--out_csv", type=str, default="data/processed/prices_monthly.csv",
-                        help="Where to save monthly prices CSV.")
+    parser.add_argument("--out_csv", type=str, default="data/processed/prices_daily.csv",
+                        help="Where to save daily prices CSV.")
     parser.add_argument("--out_db", type=str, default="data/data.db",
-                        help="SQLite DB file to store 'prices_monthly' table (set empty to skip).")
+                        help="SQLite DB file to store 'prices_daily' table (set empty to skip).")
     args = parser.parse_args()
     
     main(args.db, args.csv, args.out_csv, args.out_db)

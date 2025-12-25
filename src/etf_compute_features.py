@@ -7,8 +7,8 @@ from utils import get_logger
 
 
 
-def load_prices_monthly(db_path: str, csv_path: str, logger) -> pd.DataFrame:
-    """Load monthly prices from a SQLite database or a CSV file.
+def load_prices_daily(db_path: str, csv_path: str, logger) -> pd.DataFrame:
+    """Load daily prices from a SQLite database or a CSV file.
 
     Args:
         db_path (str): Path to the SQLite database file.
@@ -16,20 +16,20 @@ def load_prices_monthly(db_path: str, csv_path: str, logger) -> pd.DataFrame:
         logger (Logger): Logger instance for logging.
 
     Returns:
-        pd.DataFrame: DataFrame containing the monthly prices.
+        pd.DataFrame: DataFrame containing the daily prices.
     """
     try:
         import sqlite3
         db_path = Path(db_path)
         with sqlite3.connect(db_path) as conn:
-            df = pd.read_sql("SELECT * FROM prices_monthly", conn, parse_dates=["date"]).set_index("date").sort_index()
-        logger.info(f"Loaded monthly prices from SQLite Database at: {db_path} (table 'prices_monthly')")
+            df = pd.read_sql("SELECT * FROM prices_daily", conn, parse_dates=["date"]).set_index("date").sort_index()
+        logger.info(f"Loaded daily prices from SQLite Database at: {db_path} (table 'prices_daily')")
         return df
     
     except Exception as e:
         logger.warning(f"SQLite load failed ({e}); trying CSV fallback: {csv_path}")
         df = pd.read_csv(csv_path, parse_dates=["date"]).set_index("date").sort_index()
-        logger.info(f"Loaded monthly prices from CSV at: {csv_path}")
+        logger.info(f"Loaded daily prices from CSV at: {csv_path}")
         return df
 
 
@@ -79,37 +79,51 @@ def macd(prices: pd.DataFrame, fast=12, slow=26, signal=9) -> tuple[pd.DataFrame
 
 
 
-def compute_features(prices_monthly: pd.DataFrame, ret_windows: tuple[int],
+def compute_features(prices_daily: pd.DataFrame, ret_windows: tuple[int],
                       vol_windows: tuple[int], rsi_period: int,
                       macd_cfg: tuple[int]) -> pd.DataFrame:
-    """Compute technical features from monthly prices.
+    """Compute technical features from daily prices.
 
     Args:
-        prices_monthly (pd.DataFrame): Monthly prices DataFrame.
-        ret_windows (tuple[int]): Return windows for momentum features.
-        vol_windows (tuple[int]): Volatility windows.
-        rsi_period (int): Period for RSI calculation.
-        macd_cfg (tuple[int]): Configuration for MACD (fast, slow, signal).
+        prices_daily (pd.DataFrame): Daily prices DataFrame with DatetimeIndex and ticker symbols as columns.
+        ret_windows (tuple[int]): Return windows for momentum features (e.g., 1-day, 5-day returns).
+            Example: (1, 5, 20, 60) computes 1-day, 5-day, 20-day, and 60-day returns.
+        vol_windows (tuple[int]): Volatility windows for standard deviation calculation.
+            Example: (5, 20) computes 5-day and 20-day rolling volatility of daily returns.
+        rsi_period (int): Period for RSI calculation (e.g., 14). RSI measures momentum by comparing average gains to losses.
+            RSI ranges from 0-100: values > 70 suggest overbought conditions, values < 30 suggest oversold conditions.
+        macd_cfg (tuple[int]): Configuration for MACD as (fast, slow, signal) periods. MACD tracks trend changes using exponential moving averages.
+            Example: (12, 26, 9) uses 12-period fast EMA, 26-period slow EMA, and 9-period signal line.
+            MACD line = fast EMA - slow EMA; crossovers indicate trend changes.
 
     Returns:
-        pd.DataFrame: DataFrame containing the computed features.
+        pd.DataFrame: DataFrame containing the computed features with columns formatted as TICKER_metric:
+            - r{w}d: Percentage returns over {w} days (momentum indicator)
+            - vol{w}d: Volatility (standard deviation of returns) over {w} days
+            - RSI{period}: Relative Strength Index (0-100 scale, overbought/oversold indicator)
+                Average Gain = (Sum of Gains over the period) / RSI Period
+                Average Loss = (Sum of Losses over the period) / RSI Period
+                RSI = 100 - (100 / (1 + (Average Gain / Average Loss)))
+            - MACD: MACD line (fast EMA - slow EMA)
+                EMA: Exponential Moving Average; A type of moving average that gives more weight to recent prices, making it more responsive to new information.
+            - MACDsig: MACD signal line (EMA of MACD line)
     """
     features = {}
 
     # Returns / momentum features
     for w in ret_windows:
-        features[f"r{w}m"] = prices_monthly.pct_change(w)
+        features[f"r{w}d"] = prices_daily.pct_change(w)
         
     # Volatility
     for w in vol_windows:
-        features[f"vol{w}"] = prices_monthly.pct_change().rolling(w).std()
+        features[f"vol{w}d"] = prices_daily.pct_change(1).rolling(w).std()
 
     # RSI
-    features[f"RSI{rsi_period}"] = rsi(prices_monthly, rsi_period)
+    features[f"RSI{rsi_period}"] = rsi(prices_daily, rsi_period)
     
     # MACD
     fast, slow, sig = macd_cfg
-    macd_line, sig_line = macd(prices_monthly, fast, slow, sig)
+    macd_line, sig_line = macd(prices_daily, fast, slow, sig)
     features["MACD"] = macd_line
     features["MACDsig"] = sig_line
 
@@ -166,7 +180,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str,
 
     Args:
         db_path (str): Path to the SQLite database.
-        csv_path (str): Path to the CSV fallback for monthly prices.
+        csv_path (str): Path to the CSV fallback for daily prices.
         out_csv (str): Path to save the features as a CSV file.
         out_db (str): Path to save the features to a SQLite database.
         ret_windows (tuple[int]): Return windows for momentum features.
@@ -177,10 +191,10 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str,
     # Get logger
     logger = get_logger("etf_compute_features")
 
-    # Load monthly prices and compute features
-    prices_monthly = load_prices_monthly(db_path, csv_path, logger)
+    # Load daily prices and compute features
+    prices_daily = load_prices_daily(db_path, csv_path, logger)
     features = compute_features(
-        prices_monthly,
+        prices_daily,
         ret_windows=ret_windows,
         vol_windows=vol_windows,
         rsi_period=rsi_period,
@@ -196,16 +210,16 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Calculate technical features on monthly prices.")
-    parser.add_argument("--db", type=str, default="data/data.db", help="SQLite with 'prices_monthly'")
-    parser.add_argument("--csv", type=str, default="data/processed/prices_monthly.csv",
-                        help="CSV fallback for monthly prices")
-    parser.add_argument("--out_csv", type=str, default="data/processed/features_monthly.csv",
+    parser = argparse.ArgumentParser(description="Calculate technical features on daily prices.")
+    parser.add_argument("--db", type=str, default="data/data.db", help="SQLite with 'prices_daily'")
+    parser.add_argument("--csv", type=str, default="data/processed/prices_daily.csv",
+                        help="CSV fallback for daily prices")
+    parser.add_argument("--out_csv", type=str, default="data/processed/features_daily.csv",
                         help="Where to save features CSV")
     parser.add_argument("--out_db", type=str, default="data/data.db",
-                        help="SQLite DB to save 'features_monthly' (empty to skip)")
-    parser.add_argument("--ret_windows", type=int, nargs="*", default=[1,3,6,12], help="Return windows for momentum features")
-    parser.add_argument("--vol_windows", type=int, nargs="*", default=[3,6], help="Volatility windows")
+                        help="SQLite DB to save 'features_daily' (empty to skip)")
+    parser.add_argument("--ret_windows", type=int, nargs="*", default=[1,5,20,60], help="Return windows for momentum features")
+    parser.add_argument("--vol_windows", type=int, nargs="*", default=[5,20], help="Volatility windows")
     parser.add_argument("--rsi", type=int, default=14, help="Period for RSI calculation")
     parser.add_argument("--macd", type=int, nargs=3, default=[12,26,9], help="Configuration for MACD (fast, slow, signal)")
     args = parser.parse_args()

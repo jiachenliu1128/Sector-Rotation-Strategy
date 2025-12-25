@@ -72,17 +72,17 @@ def load_fred_from_csv_dir(csv_dir: str | Path) -> dict[str, pd.DataFrame]:
 
 
 
-def to_macro_monthly(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFrame:
-    """Resample each FRED series to month-end and merge into a single DF.
+def to_macro_daily(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFrame:
+    """Resample or interpolate each FRED series to daily frequency and merge into a single DF.
 
     Args:
         series_dict (dict): {name: DataFrame(index=date, columns=['value'])}
         logger: Logger instance for logging warnings/errors.
         
     Returns:
-        pd.DataFrame: Merged monthly DataFrame with 'date' as index.
+        pd.DataFrame: Merged daily DataFrame with 'date' as index.
     """
-    monthly_frames = []
+    daily_frames = []
     
     for name, df in series_dict.items():
         if df.empty:
@@ -90,72 +90,72 @@ def to_macro_monthly(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFra
         s = df["value"].copy()
         # Ensure datetime index and monotonic
         s = s.sort_index()
-        # Month-end sample then FFill for gaps 
-        s_m = s.resample("ME").last().ffill()
-        s_m.name = name  
-        monthly_frames.append(s_m.to_frame())
+        # Resample to daily then forward fill for gaps (typical for macro data)
+        s_d = s.resample("D").ffill()
+        s_d.name = name  
+        daily_frames.append(s_d.to_frame())
         
-    if not monthly_frames:
+    if not daily_frames:
         raise ValueError("No FRED series found to resample.")
     
     # Combine all DataFrames
-    macro_monthly = pd.concat(monthly_frames, axis=1).sort_index()
-    macro_monthly.index.name = "date"
+    macro_daily = pd.concat(daily_frames, axis=1).sort_index()
+    macro_daily.index.name = "date"
     # Drop all-NaN columns (if any)
-    macro_monthly = macro_monthly.dropna(axis=1, how="all")
+    macro_daily = macro_daily.dropna(axis=1, how="all")
     # Warn about missing values
-    na_cols = macro_monthly.columns[macro_monthly.isna().any()]
+    na_cols = macro_daily.columns[macro_daily.isna().any()]
     if len(na_cols) > 0:
-        logger.warning("Some monthly macro series contain NaNs after resampling: %s", list(na_cols)[:10])
-    return macro_monthly
+        logger.warning("Some daily macro series contain NaNs after resampling: %s", list(na_cols)[:10])
+    return macro_daily
 
 
 
 
 
 
-def add_macro_transforms(macro_monthly: pd.DataFrame, logger) -> pd.DataFrame:
+def add_macro_transforms(macro_daily: pd.DataFrame, logger) -> pd.DataFrame:
     """Add common transformed macro features if source columns exist.
 
     - CPI YoY from CPIAUCSL, YoY stands for 12-month % change
     - GDP YoY from GDP
     - 10y-FF spread from DGS10 and FEDFUNDS
-    - FEDFUNDS monthly change (Δ1m)
+    - FEDFUNDS daily change (Δ1d)
     
     Args:
-        macro_monthly (pd.DataFrame): Monthly macro DataFrame.
+        macro_daily (pd.DataFrame): Daily macro DataFrame.
         logger: Logger instance for logging warnings/errors.
         
     Returns:
         pd.DataFrame: DataFrame with added transformed columns.
     """
-    out = macro_monthly.copy()
+    out = macro_daily.copy()
 
-    # CPI YoY
+    # CPI YoY (365 days)
     if "fred_CPIAUCSL" in out.columns:
-        out["CPI_yoy"] = out["fred_CPIAUCSL"].pct_change(12, fill_method=None)
+        out["CPI_yoy"] = out["fred_CPIAUCSL"].pct_change(365)
     else:
-        breakpoint()
+        logger.warning("fred_CPIAUCSL not found; skipping CPI_yoy computation.")
 
-    # GDP YoY (usually quarterly, but after ffill we can compute YoY on monthly frame)
+    # GDP YoY (365 days)
     if "fred_GDP" in out.columns:
-        out["GDP_yoy"] = out["fred_GDP"].pct_change(12, fill_method=None)
+        out["GDP_yoy"] = out["fred_GDP"].pct_change(365)
     else:
-        breakpoint()
+        logger.warning("fred_GDP not found; skipping GDP_yoy computation.")
 
-    # 10y - Fed Funds spread
+    # 10y - Fed Funds spread and change in Fed Funds for each day
     if "fred_DGS10" in out.columns and "fred_FEDFUNDS" in out.columns:
         out["TermSpread"] = out["fred_DGS10"] - out["fred_FEDFUNDS"]
-        out["FEDFUNDS_chg1m"] = out["fred_FEDFUNDS"].diff(1)
+        out["FEDFUNDS_chg1d"] = out["fred_FEDFUNDS"].diff(1)
     else:
-        breakpoint()
+        logger.warning("fred_DGS10 or fred_FEDFUNDS not found; skipping spread/change.")
 
     return out
 
 
 
 
-def add_regime_tags(macro_monthly: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI_yoy",
+def add_regime_tags(macro_daily: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI_yoy",
                     inflation_thresh=0.03) -> pd.DataFrame:
     """
     Add simple macro regime classification based on GDP and CPI YoY.
@@ -167,7 +167,7 @@ def add_regime_tags(macro_monthly: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI
     Returns:
         DataFrame with new columns: growth_regime, inflation_regime, regime_tag
     """
-    out = macro_monthly.copy()
+    out = macro_daily.copy()
 
     # Define sub-regimes
     out["growth_regime"] = np.where(out[gdp_col] > 0, "Expansion", "Recession")
@@ -191,25 +191,25 @@ def add_regime_tags(macro_monthly: pd.DataFrame, gdp_col="GDP_yoy", cpi_col="CPI
 
 
 def save_macro(df: pd.DataFrame, out_csv: str, out_db: str, logger) -> None:
-    """Save the macro monthly DataFrame to CSV and/or SQLite.
+    """Save the macro daily DataFrame to CSV and/or SQLite.
     
     Args:
-        out_df (pd.DataFrame): Monthly macro DataFrame.
-        out_csv (str): Path to save cleaned monthly macro features CSV.
-        out_db (str): Path to SQLite DB to save 'macro_monthly' table.
+        out_df (pd.DataFrame): Daily macro DataFrame.
+        out_csv (str): Path to save cleaned daily macro features CSV.
+        out_db (str): Path to SQLite DB to save 'macro_daily' table.
     """
     if out_db:
         import sqlite3
         p = Path(out_db)
         
         with sqlite3.connect(p) as conn:
-            df.to_sql("macro_monthly", conn, if_exists="replace", index=True, index_label="date")
-        logger.info(f"Saved macro monthly to SQLite DB at: {p}")
+            df.to_sql("macro_daily", conn, if_exists="replace", index=True, index_label="date")
+        logger.info(f"Saved macro_daily table to SQLite DB at: {p}")
     if out_csv:
         out_csv = Path(out_csv)
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out_csv, index=True)
-        logger.info(f"Saved macro monthly CSV to: {out_csv}")
+        logger.info(f"Saved macro_daily CSV to: {out_csv}")
    
 
 
@@ -224,8 +224,8 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
     Args:
         db_path (str): path to SQLite DB with fred_* tables.
         csv_path (str): path to CSV of fred_*.csv files if SQLite not available.
-        out_csv (str): path to save cleaned monthly macro features CSV.
-        out_db (str): path to SQLite DB to write 'macro_monthly'. Use empty to skip.
+        out_csv (str): path to save cleaned daily macro features CSV.
+        out_db (str): path to SQLite DB to write 'macro_daily'. Use empty to skip.
     """
     # Load Logger
     logger = get_logger("fred_data_prep")
@@ -240,13 +240,13 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         logger.info(f"Loaded {len(fred)} FRED CSV files from: {csv_path}")
 
     try:
-        # Resample to monthly, merge and transform
-        macro_monthly = to_macro_monthly(fred, logger)
-        macro_monthly = add_macro_transforms(macro_monthly, logger)
+        # Resample to daily, merge and transform
+        macro_daily = to_macro_daily(fred, logger)
+        macro_daily = add_macro_transforms(macro_daily, logger)
 
         # Add regime tags
-        macro_monthly = add_regime_tags(macro_monthly)
-        logger.info(f"Prepared macro monthly DataFrame with shape: {macro_monthly.shape}")
+        macro_daily = add_regime_tags(macro_daily)
+        logger.info(f"Prepared macro daily DataFrame with shape: {macro_daily.shape}")
         
     except Exception as e:
         logger.error(f"Error processing FRED data: {e}")
@@ -254,7 +254,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
 
     # 4) Save
     out_db = out_db if out_db.strip() else None
-    save_macro(macro_monthly, out_csv, out_db, logger)
+    save_macro(macro_daily, out_csv, out_db, logger)
 
 
 
@@ -262,11 +262,11 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Week 2: Prepare monthly macro features from FRED series.")
+    parser = argparse.ArgumentParser(description="Prepare daily macro features from FRED series.")
     parser.add_argument("--db", type=str, default="data/data.db", help="SQLite DB containing fred_* tables.")
     parser.add_argument("--csv_dir", type=str, default="data/raw", help="Fallback directory with fred_*.csv files.")
-    parser.add_argument("--out_csv", type=str, default="data/processed/macro_monthly.csv", help="Output CSV path.")
-    parser.add_argument("--out_db", type=str, default="data/data.db", help="SQLite DB to write 'macro_monthly'. Use empty to skip.")
+    parser.add_argument("--out_csv", type=str, default="data/processed/macro_daily.csv", help="Output CSV path.")
+    parser.add_argument("--out_db", type=str, default="data/data.db", help="SQLite DB to write 'macro_daily'. Use empty to skip.")
     args = parser.parse_args()
     
     main(args.db, args.csv_dir, args.out_csv, args.out_db)
