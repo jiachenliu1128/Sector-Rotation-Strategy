@@ -17,6 +17,7 @@ Machine-learning research pipeline for building, training, and backtesting a mon
 1. Create a Python 3.11+ environment.
 2. Install dependencies: `pip install pandas numpy scikit-learn xgboost sqlalchemy`.
 3. Optional: populate the SQLite store at `data/data.db` if you prefer DB inputs over CSV.
+4. Create `.env` file with any API keys needed (e.g., `FRED_API_KEY=your_key_here`).
 
 ## Quick Start
 1. **Download & prep data**
