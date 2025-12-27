@@ -59,7 +59,7 @@ def walkforward_splits(
             if len(train) > 0 and len(test) > 0:
                 fold_count += 1
                 if verbose:
-                    print(f"  Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
+                    print(f"Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
                           f"Test {index[test[0]]} to {index[test[-1]]} ({len(test)} obs)")
                 yield train, test
                 
@@ -85,7 +85,7 @@ def walkforward_splits(
             if len(train) > 0 and len(test) > 0:
                 fold_count += 1
                 if verbose:
-                    print(f"  Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
+                    print(f"Fold {fold_count}: Train {index[train[0]]} to {index[train[-1]]} ({len(train)} obs), "
                           f"Test {index[test[0]]} to {index[test[-1]]} ({len(test)} obs)")
                 yield train, test
                 
@@ -112,12 +112,12 @@ class WFConfig:
 
     Parameters：
         train_size : int
-            Number of time steps in each training window (in months if your index is monthly).
+            Number of time steps in each training window (in days if your index is daily).
             If `expanding=True`, this is the *minimum* initial train length; later folds expand.
         test_size : int
             Number of time steps in each test window.
         step : int
-            How far to advance the window between folds (e.g., 12 for yearly steps on monthly data).
+            How far to advance the window between folds (e.g., 365 for yearly steps on daily data).
         expanding : bool
             If True, use an expanding training window; if False, use a rolling (fixed-length) window.
         embargo : int
@@ -126,7 +126,7 @@ class WFConfig:
         verbose : bool
             If True, prints progress information during split generation.
     """
-    train_size: int = 60
+    train_size: int = 365
     test_size: int = 1
     step: int = 1
     expanding: bool = True
@@ -272,15 +272,15 @@ if __name__ == "__main__":
     args.add_argument("--csv", default="data/processed/X_features.csv", help="CSV with a 'date' column to preview folds")
     args.add_argument("--date_col", default="date", help="Name of date column in CSV")
     
-    args.add_argument("--train_size", type=int, default=60, help="Training window size (months)")
-    args.add_argument("--test_size", type=int, default=1, help="Testing window size (months)")
-    args.add_argument("--step", type=int, default=1, help="Step size (months), how far to move window each fold")
+    args.add_argument("--train_size", type=int, default=60, help="Training window size (days)")
+    args.add_argument("--test_size", type=int, default=1, help="Testing window size (days)")
+    args.add_argument("--step", type=int, default=1, help="Step size (days), how far to move window each fold")
 
     args.add_argument("--expanding", action="store_true", help="Use expanding window, includes all available past data if True")
     args.add_argument("--rolling", dest="expanding", action="store_false", help="Use rolling window instead")
     args.set_defaults(expanding=True)
 
-    args.add_argument("--embargo", type=int, default=0, help="Embargo period (months) to prevent leakage, 0 disables embargo")
+    args.add_argument("--embargo", type=int, default=0, help="Embargo period (days) to prevent leakage, 0 disables embargo")
     args.add_argument("--verbose", action="store_true", help="Print progress information")
 
     args = args.parse_args()

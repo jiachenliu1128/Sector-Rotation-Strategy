@@ -48,6 +48,8 @@ def load_predictions(
     Regression:    [date, ticker, y_true, y_pred, fold]
     Classification:[date, ticker, y_true_cls, y_prob, y_pred_cls, fold]
     
+    Works with classic models (ridge/logit/rf/xgb) and sequence models (lstm/transformer)
+    
     Args:
         db: path to SQLite database
         task: 'regression' or 'classification'
@@ -95,7 +97,7 @@ def load_returns_long(
     """
     Load realized returns in WIDE form and convert to LONG:
       - Index/column names may be like y_XLF, y_XLK, ... (we'll strip 'y_' to get tickers)
-      - Values should be monthly returns (absolute or excess), not prices.
+      - Values should be daily returns (absolute or excess), not prices.
 
     Output columns: [date, ticker, ret]
     
@@ -227,10 +229,10 @@ def max_drawdown(curve: pd.Series) -> float:
 
 
 def annualized_stats(rets: pd.Series) -> Tuple[float, float, float]:
-    """Return (CAGR, vol_ann, Sharpe) assuming monthly returns and rf=0.
+    """Return (CAGR, vol_ann, Sharpe) assuming daily returns and rf=0.
     
     Args:
-        rets: Series of monthly returns
+        rets: Series of daily returns
     
     Returns:
         Tuple of (CAGR, vol_ann, Sharpe)
@@ -279,9 +281,9 @@ def backtest(
     long_short: bool = False,
     use_ytrue_if_no_returns: bool = True,
     logger: Optional[logging.Logger] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Build a monthly sector-rotation portfolio based on predictions.
+    Build a daily sector-rotation portfolio based on predictions.
 
     Parameters
     ----------
@@ -296,6 +298,7 @@ def backtest(
     -------
     port : DataFrame [date, port_ret, bench_ret(optional), long_count, short_count, turnover]
     weights : DataFrame of weights by (date, ticker)
+    metrics : DataFrame with summary statistics
     """
     # Scores
     if task == "regression":
@@ -303,10 +306,18 @@ def backtest(
             raise ValueError("Regression predictions require column 'y_pred'.")
         preds["score"] = preds["y_pred"]
     else:
+        # Prefer probability if available; otherwise allow class label fallback.
         if "y_prob" in preds.columns:
             preds["score"] = preds["y_prob"]
+        elif "y_pred_cls" in preds.columns:
+            if logger:
+                logger.warning("No 'y_prob' found; using 'y_pred_cls' as score for ranking.")
+            preds["score"] = preds["y_pred_cls"].astype(float)
+        elif "score" in preds.columns:
+            # If upstream already provided a 'score' column, use it.
+            preds["score"] = preds["score"].astype(float)
         else:
-            raise ValueError("Classification predictions require 'y_prob' or 'y_pred_cls'.")
+            raise ValueError("Classification predictions require 'y_prob' (preferred) or 'y_pred_cls'/'score'.")
 
     # Realized returns join
     if rets_long is None:
@@ -333,12 +344,12 @@ def backtest(
         realized, on=["date", "ticker"], how="inner"
     ).sort_values(["date", "ticker"])
 
-    # Iterate by month
+    # Iterate by day
     port_rows = []
     weights_rows = []
     prev_w = pd.Series(dtype=float)
 
-    # Monthly loop
+    # Daily loop
     for dt, g in df.groupby("date"):
         # Extract scores and returns
         scores = g.set_index("ticker")["score"]
@@ -401,11 +412,11 @@ def backtest(
     curve = equity_curve(port["port_ret"])
     mdd = max_drawdown(curve)
     cagr, vol_ann, sharpe = annualized_stats(port["port_ret"])
-    hit = float((port["port_ret"] > 0).mean())  # if excess returns -> hit vs 0; else interpret as >0 months
+    hit = float((port["port_ret"] > 0).mean())  # if excess returns -> hit vs 0; else interpret as >0 days
 
     metrics = pd.DataFrame(
         [{
-            "n_months": len(port),
+            "n_days": len(port),
             "CAGR": cagr,
             "Vol_ann": vol_ann,
             "Sharpe": sharpe,
@@ -417,7 +428,7 @@ def backtest(
         }]
     )
     
-    logger.info(f"Backtest completed: {len(port)} months, CAGR={cagr:.2%}, Sharpe={sharpe:.2f}, MaxDD={mdd:.2%}")
+    logger.info(f"Backtest completed: {len(port)} days, CAGR={cagr:.2%}, Sharpe={sharpe:.2f}, MaxDD={mdd:.2%}")
     return port, weights, metrics
 
 
@@ -510,7 +521,7 @@ if __name__ == "__main__":
     p.add_argument("--task", choices=["regression", "classification"], default="regression")
     
     # Models: regression -> ridge|rf|xgb ; classification -> logit|rf|xgb
-    p.add_argument("--model", choices=["ridge", "logit", "rf", "xgb"], default="ridge")
+    p.add_argument("--model", choices=["ridge", "logit", "rf", "xgb", "lstm", "transformer"], default="ridge")
     
     # Predictions source that override default table name
     p.add_argument("--preds_table", default=None, help="Override predictions table name")

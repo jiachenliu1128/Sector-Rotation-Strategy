@@ -117,7 +117,7 @@ def to_macro_daily(series_dict: dict[str, pd.DataFrame], logger) -> pd.DataFrame
 def add_macro_transforms(macro_daily: pd.DataFrame, logger) -> pd.DataFrame:
     """Add common transformed macro features if source columns exist.
 
-    - CPI YoY from CPIAUCSL, YoY stands for 12-month % change
+    - CPI YoY from CPIAUCSL, YoY stands for 1-year % change
     - GDP YoY from GDP
     - 10y-FF spread from DGS10 and FEDFUNDS
     - FEDFUNDS daily change (Δ1d)

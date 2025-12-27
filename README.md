@@ -1,13 +1,13 @@
 # Machine Learning-driven Sector Rotation Strategy
 
-Machine-learning research pipeline for building, training, and backtesting a monthly U.S. sector rotation strategy driven by ETF and macro features.
+Machine-learning research pipeline for building, training, and backtesting a daily U.S. sector rotation strategy driven by ETF and macro features.
 
 ## Project Layout
 - `config.yaml` — universe, benchmark, and FRED series configuration.
 - `src/data_loader.py` - fetch macro + ETF data
 - `src/fred_data_prep.py`, `src/etf_data_prep.py` — clean and align macro + ETF data.
 - `src/etf_compute_features.py` — create momentum, volatility, RSI, and MACD factors.
-- `src/build_feature_and_target.py` — align features with next-month excess returns.
+- `src/build_feature_and_target.py` — align features with next-day excess returns.
 - `src/fit_models.py` — walk-forward training for ridge, RF, XGBoost, and logistic models.
 - `src/backtest.py` — portfolio construction and performance reporting.
 - `data/` — processed datasets, predictions, and backtest outputs.

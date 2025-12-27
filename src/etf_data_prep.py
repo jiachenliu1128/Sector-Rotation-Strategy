@@ -164,7 +164,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
         prices_daily = load_prices_fallback_csv(csv_path)
         logger.info(f"Loaded daily prices from CSV at: {csv_path}")
 
-    # Clean and validate (no resampling to monthly)
+    # Clean and validate
     prices_daily = price_basic_clean(prices_daily)
     prices_daily = to_prices_daily(prices_daily)
     validate_prices_daily(prices_daily, logger)
@@ -178,7 +178,7 @@ def main(db_path: str, csv_path: str, out_csv: str, out_db: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Data preparation and cleaning for ETF data, load daily ETF prices, clean, resample to monthly (EOM)."
+        description="Data preparation and cleaning for ETF data, load daily ETF prices, clean, resample to daily."
     )
     parser.add_argument("--db", type=str, default="data/data.db", help="Path to SQLite DB with table 'etf_data'.")
     parser.add_argument("--csv", type=str, default="data/raw/etf_data.csv",

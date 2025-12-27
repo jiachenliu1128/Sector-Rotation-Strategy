@@ -155,8 +155,8 @@ def save_outputs(features: pd.DataFrame, out_csv: str, out_db: str, logger) -> N
         
         try:
             with sqlite3.connect(out_db) as conn:
-                features.to_sql("features_monthly", conn, if_exists="replace", index=True, index_label="date")
-            logger.info(f"Saved features to SQLite DB at: {out_db} (table 'features_monthly')")
+                features.to_sql("features_daily", conn, if_exists="replace", index=True, index_label="date")
+            logger.info(f"Saved features to SQLite DB at: {out_db} (table 'features_daily')")
         except Exception as e:
             logger.error(f"Failed to save features to SQLite DB at: {out_db}. Error: {e}. Skipping.")
     
@@ -165,7 +165,7 @@ def save_outputs(features: pd.DataFrame, out_csv: str, out_db: str, logger) -> N
         out_csv = Path(out_csv)
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         features.to_csv(out_csv)
-        logger.info(f"Saved monthly prices CSV to: {out_csv}")
+        logger.info(f"Saved daily features CSV to: {out_csv}")
         
         
         
@@ -218,8 +218,8 @@ if __name__ == "__main__":
                         help="Where to save features CSV")
     parser.add_argument("--out_db", type=str, default="data/data.db",
                         help="SQLite DB to save 'features_daily' (empty to skip)")
-    parser.add_argument("--ret_windows", type=int, nargs="*", default=[1,5,20,60], help="Return windows for momentum features")
-    parser.add_argument("--vol_windows", type=int, nargs="*", default=[5,20], help="Volatility windows")
+    parser.add_argument("--ret_windows", type=int, nargs="*", default=[1,5,20,60,120,240,365,365*2,365*3], help="Return windows for momentum features")
+    parser.add_argument("--vol_windows", type=int, nargs="*", default=[5,20,60,120,240,365,365*2,365*3], help="Volatility windows")
     parser.add_argument("--rsi", type=int, default=14, help="Period for RSI calculation")
     parser.add_argument("--macd", type=int, nargs=3, default=[12,26,9], help="Configuration for MACD (fast, slow, signal)")
     args = parser.parse_args()
